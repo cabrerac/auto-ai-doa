@@ -1,8 +1,9 @@
 from flask import (Flask, request, make_response, jsonify)
 
-from modules import hypervisor
+from modules.hypervisor import Hypervisor
 
 app = Flask(__name__)
+hypervisor = Hypervisor()
 
 
 @app.route("/auto_ai/hypervisor/register_service", methods=["GET", "POST", "PUT", "DELETE"])
