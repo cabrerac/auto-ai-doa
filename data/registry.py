@@ -51,7 +51,7 @@ class DynamoDBRegistry(Registry):
         except ClientError as e:
             print(e.response['Error']['Message'])
         else:
-            print("Service Response: {}".format(response))
+            # print("Service Response: {}".format(response))
             if 'Item' in response:
                 return response['Item']
             else:
@@ -72,7 +72,7 @@ class DynamoDBRegistry(Registry):
         except ClientError as e:
             print(e.response['Error']['Message'])
         else:
-            print("Data Response: {}".format(response))
+            # print("Data Response: {}".format(response))
             if 'Item' in response:
                 return response['Item']
             else:

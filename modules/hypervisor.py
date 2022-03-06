@@ -18,7 +18,7 @@ class Hypervisor():
         self.CLUSTER_NAME = "HypervisorCluster"
 
         response = self.ecs_client.create_cluster(clusterName=self.CLUSTER_NAME)
-        print(json.dumps(response, indent=4))
+        # print(json.dumps(response, indent=4))
 
     def register_service(self, service_description):
         print("Register: Service description {}".format(service_description))
@@ -26,25 +26,25 @@ class Hypervisor():
         image = service_description['image']
 
 
-        response = self.ecs_client.register_task_definition(
+        # response = self.ecs_client.register_task_definition(
             
-                containerDefinitions=[
-                    {
-                        "name": name,
-                        "image": image,
-                    }
-                ],
-                executionRoleArn="arn:aws:iam::288687564189:role/climate-container-role",
-                networkMode="awsvpc",
-                requiresCompatibilities= [
-                    "FARGATE"
-                ],
-                cpu= "256",
-                memory= "512",        
-                family= "ClimateEnsembling",
-                )
+        #         containerDefinitions=[
+        #             {
+        #                 "name": name,
+        #                 "image": image,
+        #             }
+        #         ],
+        #         executionRoleArn="arn:aws:iam::288687564189:role/climate-container-role",
+        #         networkMode="awsvpc",
+        #         requiresCompatibilities= [
+        #             "FARGATE"
+        #         ],
+        #         cpu= "256",
+        #         memory= "512",        
+        #         family= "ClimateEnsembling",
+        #         )
 
-        print(json.dumps(response, indent=4, default=str))
+        # print(json.dumps(response, indent=4, default=str))
 
         registry_response = self.registry.put_service(service_description)
 
@@ -60,7 +60,7 @@ class Hypervisor():
         task_response = self._compute(service_name, override_inputs, service_parameters)
         return task_response
 
-    def _compute(self, service_name, inputs, parameters):
+    def _compute(self, service_name, parameters):
         cached_data = self.registry.get_data(service_name, parameters)
         if False:
         # if cached_data is not None or service_name in inputs:
@@ -79,7 +79,7 @@ class Hypervisor():
 
             i=0
             while waiting:
-                
+                # TODO Make this better parallelized for computing all the models at once
                 for task in sub_task_responses:
                     if self._is_task_completed(task):
                         sub_task_responses.remove(task)
@@ -100,7 +100,8 @@ class Hypervisor():
             print("Data not registered successfully! {}".format(data_description))
 
         # Call docker
-        taskDefinition = "ClimateEnsembling"
+        taskDefinition = "ClimateEnsemblingManual"
+
         ## TODO pass parameters??
         task_response = self.ecs_client.run_task(
             taskDefinition=taskDefinition,
@@ -111,17 +112,39 @@ class Hypervisor():
             networkConfiguration={
                 'awsvpcConfiguration': {
                     'subnets': [
-                        'subnet-6b08e620',
+                        'subnet-0183fe050d93b845a',
                     ],
                     'assignPublicIp': 'ENABLED',
-                    'securityGroups': ["sg-2e9bd97f"]
+                    'securityGroups': ["sg-0a6e23d1e06d90604"]
                 }
-            }
+            },
+            overrides={'containerOverrides': [
+                {
+                    'name': 'climate',
+                    'command': self._build_container_command(parameters)
+                    # 'command': ["/bin/sh", "cd /app", 'ls', 'pwd', 'python3 --version', 'pip freeze']
+                }
+            ]}
         )
         print("Task running......")
-        print(json.dumps(task_response, indent=4, default=str))
+        # print(json.dumps(task_response, indent=4, default=str))
         return task_response
+
+    def _build_container_command(self, parameters):
+        cmd = "/bin/sh -c \"cd /app && ls -altr && pwd && python3 --version && pip freeze "
+        cmd = cmd + " && " + "python3 /app/main.py"
+        cmd = cmd + "--parameters=\'{}\'".format(parameters)
+        # for parameter in parameters.items():
+        #     cmd = cmd + "{}: \'{}\',".format(parameter[0], parameter[1])
+        # cmd = cmd + "}"
+        cmd = cmd + "\""
+        print("Container Parameters: {} Command: {}".format(parameters, cmd))
+        return [cmd]
 
     def _build_data_description(self, service_name, parameters):
         ## TODO
-         return {'name': service_name, 'output': "s3://" + self.BASE_BUCKET + "/" + service_name + "/", **parameters}
+         return {'name': service_name, 
+                 'outputs': {'output1': "s3://" + self.BASE_BUCKET + "/" + service_name + "/"},
+                 'inputs': parameters,
+                 'parameters': parameters
+         }
