@@ -1,5 +1,6 @@
 from pymongo import MongoClient
 from botocore.exceptions import ClientError
+import json
 
 """
 Input - A piece of data that the hypervisor knows how to compute and is the output of another service. This is optionally specified only if the user want's to override the default value for the given parameters.
@@ -47,7 +48,7 @@ class DynamoDBRegistry(Registry):
     def get_service(self, service_name, parameters):
         print("Get Service {} {}".format(service_name, parameters))
         try:
-            response = self.services_index_table.get_item(Key={'name': service_name})
+            response = self.services_index_table.get_item(Key={'service_name': service_name})
         except ClientError as e:
             print(e.response['Error']['Message'])
         else:
@@ -66,9 +67,9 @@ class DynamoDBRegistry(Registry):
         return True
 
 
-    def get_data(self, data_name, parameters):
+    def get_data(self, dataId):
         try:
-            response = self.data_index_table.get_item(Key={'name': data_name})
+            response = self.data_index_table.get_item(Key={'dataId': dataId})
         except ClientError as e:
             print(e.response['Error']['Message'])
         else:
@@ -77,6 +78,35 @@ class DynamoDBRegistry(Registry):
                 return response['Item']
             else:
                 return None
+
+
+    ### Climate Specific Stuff ###
+    def _make_data_id(self, service_name, dataHash):
+        return service_name + "-" + dataHash
+
+    def _data_item_hash(self, service_name, parameters):
+        # need to remove the parameters that aren't *required* for this service before calling it?????
+        # Otherwise when we do a long chain it will have a diff parameter setup than a short one and thus a different hash?
+        # Or just... no hash. 
+        hashed_item = hash(repr(json.dumps({'service_name': service_name, **parameters}, sort_keys=True)))
+        return hashed_item
+
+    def _build_data_description(self, service_name, dataHash, parameters):
+        # uuid = UUID.uuid.uuid4().hex
+        ## TODO
+        dataId = self._make_data_id(service_name, dataHash)
+        input_locations = {}
+        for input_name, input in inputs.items():
+            input_locations[input_name] = "s3://" + self.BASE_BUCKET + "/" + service_name + "/" + inputHash
+        for output_name, output in outputs.items():
+            output_locations[output_name] = "s3://" + self.BASE_BUCKET + "/" + service_name + "/" + outputHash
+
+        return {'dataId': dataId,
+                 'task_name': service_name, 
+                 'inputs': {input_name: input_locations},
+                 'outputs': {'output': "s3://" + self.BASE_BUCKET + "/" + service_name + "/" + dataHash},
+                 'parameters': parameters
+        }
 
 
 

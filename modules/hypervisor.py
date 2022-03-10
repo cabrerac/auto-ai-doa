@@ -1,4 +1,5 @@
 from re import sub
+from uuid import UUID
 from data.registry import DynamoDBRegistry, MongoDBRegistry, Registry
 from pymongo import MongoClient
 import boto3
@@ -61,7 +62,9 @@ class Hypervisor():
         return task_response
 
     def _compute(self, service_name, parameters):
-        cached_data = self.registry.get_data(service_name, parameters)
+        dataHash = self._data_item_hash(service_name, parameters)
+        dataId = self._make_data_id(service_name, dataHash)
+        cached_data = self.registry.get_data(dataId)
         if False:
         # if cached_data is not None or service_name in inputs:
             print("Returning cached data for {}: {}".format(service_name, cached_data))
@@ -90,10 +93,12 @@ class Hypervisor():
                     i=0
                 i = i + 1
 
-            return self._compute_single_task(service_name, parameters)
+            return self._compute_single_task(service_name, service, parameters)
 
-    def _compute_single_task(self, service_name, parameters):
-        data_description = self._build_data_description(service_name, parameters)
+    def _compute_single_task(self, service_name, service, parameters):
+        
+        uuid = self._data_item_hash(service_name, parameters)
+        data_description = self._build_data_description(service_name, uuid, parameters)
         print("Computing service " + data_description['output'])
         # Fill data location into registry
         if not self.registry.put_data(data_description):
@@ -121,30 +126,17 @@ class Hypervisor():
             overrides={'containerOverrides': [
                 {
                     'name': 'climate',
-                    'command': self._build_container_command(parameters)
-                    # 'command': ["/bin/sh", "cd /app", 'ls', 'pwd', 'python3 --version', 'pip freeze']
+                    'command': self._build_container_command(data_description)
                 }
             ]}
         )
         print("Task running......")
-        # print(json.dumps(task_response, indent=4, default=str))
         return task_response
 
     def _build_container_command(self, parameters):
         cmd = "/bin/sh -c \"cd /app && ls -altr && pwd && python3 --version && pip freeze "
         cmd = cmd + " && " + "python3 /app/main.py"
         cmd = cmd + "--parameters=\'{}\'".format(parameters)
-        # for parameter in parameters.items():
-        #     cmd = cmd + "{}: \'{}\',".format(parameter[0], parameter[1])
-        # cmd = cmd + "}"
         cmd = cmd + "\""
         print("Container Parameters: {} Command: {}".format(parameters, cmd))
         return [cmd]
-
-    def _build_data_description(self, service_name, parameters):
-        ## TODO
-         return {'name': service_name, 
-                 'outputs': {'output1': "s3://" + self.BASE_BUCKET + "/" + service_name + "/"},
-                 'inputs': parameters,
-                 'parameters': parameters
-         }
