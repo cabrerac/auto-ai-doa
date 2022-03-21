@@ -1,6 +1,8 @@
 from pymongo import MongoClient
 from botocore.exceptions import ClientError
 import json
+import networkx
+from .utils import *
 
 """
 Input - A piece of data that the hypervisor knows how to compute and is the output of another service. This is optionally specified only if the user want's to override the default value for the given parameters.
@@ -36,14 +38,52 @@ class DynamoDBRegistry(Registry):
         self.data_index_table = self.client.Table(DATA_REGISTRY_NAME)
         self.services_index_table = self.client.Table(SERVICES_REGISTRY_NAME)
 
+        self._initialize_service_graph()
+
+    def _initialize_service_graph(self):
+        print("Initializing service graph from service registry....")
+        self.service_graph = networkx.DiGraph()
+
+        #### Todo - read in from services table and add everything as nodes.
+
+    def get_ancestors(self, service_name):
+        ancestors = []
+        for p in self.service_graph.predecessors(service_name):
+            ancestors.append(p)
+            ancestors = ancestors + self.get_ancestors(p)
+        return set(ancestors)
+
+    def get_descendants(self, service_name):
+        descendants = []
+        for s in self.service_graph.sucessors(service_name):
+            descendants.append(s)
+            descendants = descendants + self.get_descendants(p)
+        return set(descendants)
+
     def put_service(self, service_description):
-        
+        name = service_description['service_name']
         try:
             self.services_index_table.put_item(Item=service_description)
             print(f'resource, specify none      : write succeeded.')
         except Exception as e:
             print(f'resource, specify none      : write failed: {e}')
+            return False
+        self.service_graph.add_nodes_from([(name, service_description)])
+        print("* Added node to the graph {} {} ".format(name, service_description))
+        for i in service_description['inputs'].keys():
+            self.service_graph.add_edge(i, name)
+            print("**** Added edge to the graph {} -> {} ".format(i, name))
+        
+        self._print_graph()
         return True
+
+    def _print_graph(self):
+        print("\n********************* Nodes **************************")
+        print(self.service_graph.nodes)
+        print("********************* Edges **************************")
+        print(self.service_graph.edges)
+        print("******************************************************\n")
+
 
     def get_service(self, service_name, parameters):
         print("Get Service {} {}".format(service_name, parameters))
@@ -81,30 +121,40 @@ class DynamoDBRegistry(Registry):
 
 
     ### Climate Specific Stuff ###
-    def _make_data_id(self, service_name, dataHash):
+    def make_data_id(self, service_name, dataHash):
         return service_name + "-" + dataHash
 
-    def _data_item_hash(self, service_name, parameters):
+    def data_item_hash(self, service_name, parameters):
         # need to remove the parameters that aren't *required* for this service before calling it?????
         # Otherwise when we do a long chain it will have a diff parameter setup than a short one and thus a different hash?
         # Or just... no hash. 
-        hashed_item = hash(repr(json.dumps({'service_name': service_name, **parameters}, sort_keys=True)))
+        hashed_item = str(hash(repr(json.dumps({'service_name': service_name, **parameters}, sort_keys=True))))
         return hashed_item
 
-    def _build_data_description(self, service_name, dataHash, parameters):
+    def build_data_description(self, service_name, dataHash, parameters):
         # uuid = UUID.uuid.uuid4().hex
         ## TODO
-        dataId = self._make_data_id(service_name, dataHash)
+        dataId = self.make_data_id(service_name, dataHash)
         input_locations = {}
-        for input_name, input in inputs.items():
-            input_locations[input_name] = "s3://" + self.BASE_BUCKET + "/" + service_name + "/" + inputHash
-        for output_name, output in outputs.items():
-            output_locations[output_name] = "s3://" + self.BASE_BUCKET + "/" + service_name + "/" + outputHash
+        output_locations = {}
+        print("Node {} preds {}".format(self.service_graph.nodes(service_name), self.service_graph.predecessors(service_name)))
+        for pname in self.service_graph.predecessors(service_name):
+            p = self.service_graph.nodes(pname)
+            name = p['service_name']
+            sub_p = get_required_parameters(p['service_name'], parameters)
+            p_hash = self._data_item_hash(p['service_name'], sub_p)
+            input_locations[p['service_name']] = "s3://" + self.BASE_BUCKET + "/" + name + "/" + p_hash
+        for sname in self.service_graph.predecessors(service_name):
+            s = self.service_graph.nodes(sname)
+            name = s['service_name']
+            sub_p = get_required_parameters(name, parameters)
+            p_hash = self._data_item_hash(name, sub_p)
+            output_locations[name] = "s3://" + self.BASE_BUCKET + "/" + name + "/" +  p_hash
 
         return {'dataId': dataId,
-                 'task_name': service_name, 
-                 'inputs': {input_name: input_locations},
-                 'outputs': {'output': "s3://" + self.BASE_BUCKET + "/" + service_name + "/" + dataHash},
+                 'service_name': service_name, 
+                 'inputs': input_locations,
+                 'outputs': output_locations,
                  'parameters': parameters
         }
 
