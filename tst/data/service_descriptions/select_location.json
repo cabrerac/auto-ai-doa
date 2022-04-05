@@ -1,0 +1,16 @@
+{
+  "service_name": "SelectLocation",
+  "image": "288687564189.dkr.ecr.eu-west-1.amazonaws.com/climate-ensembling",
+  "inputs": {},
+  "parameters": {
+     "base_model":{
+         "type": "string"
+     },
+     "models":{
+      "type": "S3Location"
+     },
+     "locations": {
+        "type": "string"
+     }
+  }
+}

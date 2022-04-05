@@ -1,9 +1,16 @@
 from flask import (Flask, request, make_response, jsonify)
 
 from modules.hypervisor import Hypervisor
+import boto3
+from data.registry import DynamoDBRegistry
 
 app = Flask(__name__)
-hypervisor = Hypervisor()
+
+ddb_client = boto3.resource("dynamodb")
+registry = DynamoDBRegistry(ddb_client)
+s3_client = boto3.client("s3")
+ecs_client = boto3.client("ecs")
+hypervisor = Hypervisor(registry=registry, s3_client=s3_client, ecs_client=ecs_client)
 
 
 @app.route("/auto_ai/hypervisor/register_service", methods=["GET", "POST", "PUT", "DELETE"])

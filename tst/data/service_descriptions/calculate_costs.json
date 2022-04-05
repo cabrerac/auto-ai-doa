@@ -1,0 +1,14 @@
+{
+  "service_name": "CalculateCost",
+  "image": "288687564189.dkr.ecr.eu-west-1.amazonaws.com/climate-ensembling",
+  "inputs": {
+    "BiasCorrection": {
+      "type": "ServiceOutput"
+    }
+  },
+  "parameters": {
+    "time_windows": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "service_name": "BiasCorrection",
+  "image": "288687564189.dkr.ecr.eu-west-1.amazonaws.com/climate-ensembling",
+  "inputs": {
+    "SelectLocation": {
+      "type": "ServiceOutput"
+    }
+  },
+  "parameters": {
+    "bias_correction_methods": {
+      "type": "string"
+    },
+    "thresholds": {
+      "type": "int",
+      "defaultValue": 35
+    }
+  }
+}

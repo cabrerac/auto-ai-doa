@@ -47,11 +47,11 @@ class DynamoDBRegistry(Registry):
         #### Todo - read in from services table and add everything as nodes.
 
     def get_ancestors(self, service_name):
-        ancestors = []
+        ancestors = set()
         for p in self.service_graph.predecessors(service_name):
-            ancestors.append(p)
-            ancestors = ancestors + self.get_ancestors(p)
-        return set(ancestors)
+            ancestors.add(p)
+            ancestors = ancestors | self.get_ancestors(p)
+        return ancestors
 
     def get_descendants(self, service_name):
         descendants = []
@@ -86,7 +86,7 @@ class DynamoDBRegistry(Registry):
 
 
     def get_service(self, service_name, parameters):
-        print("Get Service {} {}".format(service_name, parameters))
+        # print("Get Service {} {}".format(service_name, parameters))
         try:
             response = self.services_index_table.get_item(Key={'service_name': service_name})
         except ClientError as e:
@@ -122,41 +122,54 @@ class DynamoDBRegistry(Registry):
 
     ### Climate Specific Stuff ###
     def make_data_id(self, service_name, dataHash):
-        return service_name + "-" + dataHash
+        return service_name +  "-" + dataHash
 
-    def data_item_hash(self, service_name, parameters):
-        # need to remove the parameters that aren't *required* for this service before calling it?????
-        # Otherwise when we do a long chain it will have a diff parameter setup than a short one and thus a different hash?
-        # Or just... no hash. 
-        hashed_item = str(hash(repr(json.dumps({'service_name': service_name, **parameters}, sort_keys=True))))
-        return hashed_item
+    def _custom_hash(parameters):
+        return "fdsaf"
 
-    def build_data_description(self, service_name, dataHash, parameters):
+    def data_item_hash(self, service_name, required_parameters):
+        """
+        Makes a hash out of a service name and all (and only) the required parameters
+        to compute an instance of running that service for one task.
+
+        """
+
+        s1 = {'service_name': service_name, **required_parameters}
+        s2 = json.dumps(s1, sort_keys=True)
+        s3 = repr(s2)
+        s4 = make_hash(s3)
+        # s4 = hash(s3)
+        s5 = str(s4)
+        return s5
+
+    def build_data_description(self, service_name, service, dataHash, parameters, s3_bucket='climate-ensembling'):
         # uuid = UUID.uuid.uuid4().hex
         ## TODO
         dataId = self.make_data_id(service_name, dataHash)
         input_locations = {}
         output_locations = {}
-        print("Node {} preds {}".format(self.service_graph.nodes(service_name), self.service_graph.predecessors(service_name)))
+        # print("Node {} preds {}".format(self.service_graph.nodes[service_name], self.service_graph.predecessors(service_name)))
         for pname in self.service_graph.predecessors(service_name):
-            p = self.service_graph.nodes(pname)
+            p = self.service_graph.nodes[pname]
+            # print("p {}".format(p))
             name = p['service_name']
-            sub_p = get_required_parameters(p['service_name'], parameters)
-            p_hash = self._data_item_hash(p['service_name'], sub_p)
-            input_locations[p['service_name']] = "s3://" + self.BASE_BUCKET + "/" + name + "/" + p_hash
-        for sname in self.service_graph.predecessors(service_name):
-            s = self.service_graph.nodes(sname)
-            name = s['service_name']
-            sub_p = get_required_parameters(name, parameters)
-            p_hash = self._data_item_hash(name, sub_p)
-            output_locations[name] = "s3://" + self.BASE_BUCKET + "/" + name + "/" +  p_hash
+            sub_p = get_required_parameters(self.service_graph.predecessors(name), parameters, self.service_graph)
+            p_hash = self.data_item_hash(name, sub_p)
+            input_locations[name] = "s3://" + s3_bucket + "/" + name + "/" + p_hash
 
-        return {'dataId': dataId,
+        ancestors = self.get_ancestors(service_name)
+        subset_parameters = get_required_parameters(ancestors, parameters, self.service_graph)
+        s_hash = self.data_item_hash(service_name, subset_parameters)
+        output_locations[service_name] = "s3://" + s3_bucket + "/" + service_name + "/" +  s_hash
+        
+        data_description = {'dataId': dataId,
                  'service_name': service_name, 
                  'inputs': input_locations,
                  'outputs': output_locations,
-                 'parameters': parameters
+                 'parameters': subset_parameters
         }
+        # print("********************Data Description*************************\n {} \n ***********************************".format(data_description))
+        return data_description
 
 
 
