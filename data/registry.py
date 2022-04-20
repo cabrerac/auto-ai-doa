@@ -47,17 +47,25 @@ class DynamoDBRegistry(Registry):
         #### Todo - read in from services table and add everything as nodes.
 
     def get_ancestors(self, service_name):
+        """
+        Self included.
+        """
         ancestors = set()
         for p in self.service_graph.predecessors(service_name):
             ancestors.add(p)
             ancestors = ancestors | self.get_ancestors(p)
+        ancestors.add(service_name)
         return ancestors
 
     def get_descendants(self, service_name):
+        """
+        Self included.
+        """
         descendants = []
         for s in self.service_graph.sucessors(service_name):
             descendants.append(s)
             descendants = descendants + self.get_descendants(p)
+        descendants.add(service_name)
         return set(descendants)
 
     def put_service(self, service_description):

@@ -72,7 +72,6 @@ def test_get_required_parameters(register_services, service_names, parameters):
     parameters_sl, parameters_bc, parameters_cc = parameters
     for service_name, p in zip(service_names, parameters):
         ancestors = hypervisor.registry.get_ancestors(service_name)
-        ancestors.add(service_name)
         subset_parameters = get_required_parameters(ancestors, p, hypervisor.registry.service_graph)
         assert subset_parameters == p
         

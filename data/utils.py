@@ -18,7 +18,6 @@ def get_required_parameters(ancestors, parameters, graph):
     print("Returning required parameters {}".format(req_parameters))
     return req_parameters
 
-
 def make_hash(s):
     return hashlib.blake2s(str.encode(s), digest_size=HASH_DIGEST_SIZE).hexdigest()
     # return hashlib.sha224(b"Nobody inspects the spammish repetition").hexdigest()
