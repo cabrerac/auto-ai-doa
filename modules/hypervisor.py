@@ -32,7 +32,7 @@ class Hypervisor():
         dataHash = self.registry.data_item_hash(service_name, subset_parameters)
         dataId = self.registry.make_data_id(service_name, dataHash)
         cached_data = self.registry.get_data(dataId)
-        if False:
+        if not parameters['force_rerun'] and (cached_data is not None):
         # TODO if cached_data is not None or service_name in inputs:
             print("Returning cached data for {}: {}".format(service_name, cached_data))
             return cached_data
