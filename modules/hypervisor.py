@@ -1,6 +1,7 @@
 import json
 from data.utils import get_required_parameters
 import time
+import itertools
 
 class Hypervisor():
     def __init__(self, base_bucket='climate-ensembling', cluster_name="HypervisorCluster", s3_client=None, ecs_client=None, registry=None):
@@ -65,7 +66,7 @@ class Hypervisor():
                 time.sleep(3) # sleep for 15 seconds in between checks
 
 
-            return self._compute_single_service(service_name, service, parameters)
+            return self._compute_single_service_multi_parameters(service_name, service, parameters)
 
     def _is_service_completed(self, target_task_arn):
         taskList = self.ecs_client.list_tasks(cluster=self.CLUSTER_NAME)['taskArns'] #desiredStatus='STOPPED')
@@ -74,6 +75,32 @@ class Hypervisor():
             if task_arn == target_task_arn:
                 print("Target task located in list.")
         return False
+
+    def _split_parameters_into_individual_task_sets(self, service_name, parameters):
+        """
+        Takes a list of all the parameter combinations for this task, and splits it into separate tasks to run each one.s
+        
+        Approximately the below, but wrapped with the service name and other HV parameters.
+        Input parameters = {'a': [1,2], 'b': [3,3,4], 'c': [9]}
+        => Output ~ [{'a': 1, 'b': 3, 'c': 9}, {'a': 1, 'b': 3, 'c': 9}, {'a': 1, 'b': 4, 'c': 9}, {'a': 2, 'b': 3, 'c': 9}, {'a': 2, 'b': 3, 'c': 9}, {'a': 2, 'b': 4, 'c': 9}]
+        """
+        parameter_sets = []
+        service_params = parameters[service_name]
+        combos = list(itertools.product(*service_params.values()))
+        keyed_combos = []
+        for combo in combos:
+            keyed_combos.append(dict(zip(service_params.keys(), combo)))
+        for kc in keyed_combos:
+            pcopy = parameters.copy()
+            pcopy[service_name] = kc
+            parameter_sets.append(pcopy)
+        print("**** DEBUG {} ***** Initial Parameters: {} \n Output parameters sets: {} \n".format(service_name, parameters, parameter_sets))
+        return parameter_sets
+
+    def _compute_single_service_multi_parameters(self, service_name, service, parameters):
+        parameter_sets = self._split_parameters_into_individual_task_sets(service_name, parameters)
+        for single_set_parameters in parameter_sets:
+            self._compute_single_service(self, service_name, service, single_set_parameters)
 
     def _compute_single_service(self, service_name, service, parameters):
         
