@@ -100,7 +100,7 @@ class Hypervisor():
     def _compute_single_service_multi_parameters(self, service_name, service, parameters):
         parameter_sets = self._split_parameters_into_individual_task_sets(service_name, parameters)
         for single_set_parameters in parameter_sets:
-            self._compute_single_service(self, service_name, service, single_set_parameters)
+            self._compute_single_service(service_name, service, single_set_parameters)
 
     def _compute_single_service(self, service_name, service, parameters):
         
