@@ -12,7 +12,7 @@ class Hypervisor():
         self.BASE_BUCKET = base_bucket
         self.CLUSTER_NAME = cluster_name
 
-        response = self.ecs_client.create_cluster(clusterName=self.CLUSTER_NAME)
+        # response = self.ecs_client.create_cluster(clusterName=self.CLUSTER_NAME)
 
     def register_service(self, service_description):
         print("Register: Service description {}".format(service_description))
@@ -28,18 +28,21 @@ class Hypervisor():
         return service_response
 
     def _compute(self, service_name, parameters):
-        ancestors = self.registry.get_ancestors(service_name)
+        ancestors = self.registry.get_ancestors_and_self(service_name)
         subset_parameters = get_required_parameters(ancestors, parameters, self.registry.service_graph)
         dataHash = self.registry.data_item_hash(service_name, subset_parameters)
         dataId = self.registry.make_data_id(service_name, dataHash)
         cached_data = self.registry.get_data(dataId)
+
+        print("***** Inside _compute for {} with dataHash {} *****".format(service_name, dataHash))
+
         if not parameters['force_rerun'] and (cached_data is not None):
         # TODO if cached_data is not None or service_name in inputs:
             print("Returning cached data for {}: {}".format(service_name, cached_data))
             return cached_data
         else:
             waiting = True
-            service = self.registry.get_service(service_name, parameters)
+            service = self.registry.get_service(service_name, subset_parameters)
             sub_service_responses = []
 
             # Dispatch jobs or get the cached data for the required inputs
@@ -85,16 +88,39 @@ class Hypervisor():
         => Output ~ [{'a': 1, 'b': 3, 'c': 9}, {'a': 1, 'b': 3, 'c': 9}, {'a': 1, 'b': 4, 'c': 9}, {'a': 2, 'b': 3, 'c': 9}, {'a': 2, 'b': 3, 'c': 9}, {'a': 2, 'b': 4, 'c': 9}]
         """
         parameter_sets = []
+        relevant_services = [service_name]
         service_params = parameters[service_name]
+        traverse_name = service_name
+        ancestors = self.registry.get_ancestors_and_self(traverse_name)
+
+        # First we loop through the ancestors and build an overall parameters set for all previous services of the requested service
+        for ancestor in ancestors:
+            print("Ancestor: {}".format(ancestor))
+            if ancestor not in relevant_services:
+                relevant_services.append(ancestor)
+                service_params = {**service_params, **parameters[ancestor]}
+                    
+
+        # TODO maybe keep the dictionary-ness here rather than dropping it then turning it back into a dict.
+
+        # Here we expand the lists inside the parameters and build the combintoric combinations
         combos = list(itertools.product(*service_params.values()))
+
+
+        # print("*****DEBUG COMBOS {}".format(combos))
+
+        # Add back in the keys for the 
         keyed_combos = []
         for combo in combos:
             keyed_combos.append(dict(zip(service_params.keys(), combo)))
+
+
         for kc in keyed_combos:
             pcopy = parameters.copy()
             pcopy[service_name] = kc
             parameter_sets.append(pcopy)
-        print("**** DEBUG {} ***** Initial Parameters: {} \n Output parameters sets: {} \n".format(service_name, parameters, parameter_sets))
+        print("Initial Parameters: {} \n Output parameters sets: {} \n".format(service_name, parameters, len(parameter_sets)))
+        # print("**** DEBUG Output parameters sets: {} \n\n\n\n".format(parameter_sets))
         return parameter_sets
 
     def _compute_single_service_multi_parameters(self, service_name, service, parameters):
@@ -112,6 +138,9 @@ class Hypervisor():
 
         # Call docker
         taskDefinition = "ClimateEnsemblingManual"
+
+        print("Calling task {} with inputs from {} and output to: {}".format(data_description['dataId'], data_description['inputs'], data_description['outputs']))
+        # print("**** DEBUG **** Calling task {} with data description: {}".format(data_description))
 
         ## TODO pass parameters??
         task_response = self.ecs_client.run_task(

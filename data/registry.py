@@ -1,7 +1,7 @@
 from pymongo import MongoClient
 from botocore.exceptions import ClientError
 import json
-import networkx
+import networkx as nx
 from .utils import *
 
 """
@@ -42,22 +42,26 @@ class DynamoDBRegistry(Registry):
 
     def _initialize_service_graph(self):
         print("Initializing service graph from service registry....")
-        self.service_graph = networkx.DiGraph()
+        self.service_graph = nx.DiGraph()
 
         #### Todo - read in from services table and add everything as nodes.
 
-    def get_ancestors(self, service_name):
+    def get_ancestors_and_self(self, service_name):
         """
         Self included.
         """
+        ancestors = nx.ancestors(self.service_graph, service_name)
+        ancestors.add(service_name)
+        return ancestors
+        
         ancestors = set()
         for p in self.service_graph.predecessors(service_name):
             ancestors.add(p)
-            ancestors = ancestors | self.get_ancestors(p)
+            ancestors = ancestors | self.get_ancestors_and_self(p)
         ancestors.add(service_name)
         return ancestors
 
-    def get_descendants(self, service_name):
+    def get_descendants_and_self(self, service_name):
         """
         Self included.
         """
@@ -135,15 +139,15 @@ class DynamoDBRegistry(Registry):
     def _custom_hash(parameters):
         return "fdsaf"
 
-    def data_item_hash(self, service_name, required_parameters):
+    def data_item_hash(self, p):
         """
         Makes a hash out of a service name and all (and only) the required parameters
         to compute an instance of running that service for one task.
 
         """
 
-        s1 = {'service_name': service_name, **required_parameters}
-        s2 = json.dumps(s1, sort_keys=True)
+        # s1 = {'service_name': service_name, **required_parameters}
+        s2 = json.dumps(p, sort_keys=True)
         s3 = repr(s2)
         s4 = make_hash(s3)
         # s4 = hash(s3)
@@ -153,7 +157,7 @@ class DynamoDBRegistry(Registry):
     def build_data_description(self, service_name, service, dataHash, parameters, s3_bucket='climate-ensembling'):
         # uuid = UUID.uuid.uuid4().hex
         ## TODO
-        dataId = self.make_data_id(service_name, dataHash)
+        # dataId = self.make_data_id(service_name, dataHash)
         input_locations = {}
         output_locations = {}
         # print("Node {} preds {}".format(self.service_graph.nodes[service_name], self.service_graph.predecessors(service_name)))
@@ -165,9 +169,10 @@ class DynamoDBRegistry(Registry):
             p_hash = self.data_item_hash(name, sub_p)
             input_locations[name] = "s3://" + s3_bucket + "/" + name + "/" + p_hash
 
-        ancestors = self.get_ancestors(service_name)
+        ancestors = self.get_ancestors_and_self(service_name)
         subset_parameters = get_required_parameters(ancestors, parameters, self.service_graph)
         s_hash = self.data_item_hash(service_name, subset_parameters)
+        dataId = self.make_data_id(service_name, s_hash)
         output_locations[service_name] = "s3://" + s3_bucket + "/" + service_name + "/" +  s_hash
         
         data_description = {'dataId': dataId,
