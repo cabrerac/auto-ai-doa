@@ -81,34 +81,6 @@ def parameters_together():
 
 import itertools
 
-def build_expanded_service_sets(parameters):
-    """
-    Returns, for each individual service, the power expansion of the parameters for the service.
-
-    <-- {"SelectLocation": [(a,1), (a,2), (b,1), (b,2)], ...}
-    """
-    expanded_service_sets = {}
-    for service, sp in parameters.items():
-        combos = list(itertools.product(*sp.values()))
-        # combos = list(map(data_item_hash, itertools.product(sp.values())))
-        print("********************************hash combos****************************** \n {} \n *****************".format(combos))
-        keyed_combos = tuple(map(lambda values: dict(zip(sp.keys(), values)), combos))
-        print("Service: {} Len Combos: {} Keyed Combos: {}".format(service, len(combos), keyed_combos))
-        expanded_service_sets[service] = keyed_combos
-    
-
-    s_e_hash = {}
-
-    for service, service_tasks in expanded_service_sets.items():
-        tasks_hashed = []
-        for task in service_tasks:
-            h = data_item_hash(task)
-            tasks_hashed.append({"service": service, "hash": h, "task": task})
-        s_e_hash[service] = tasks_hashed
-
-    return s_e_hash
-
-
 def test_expanded_service_sets(register_services, service_names, parameters_together):
     
     hypervisor, _ = register_services
@@ -136,35 +108,6 @@ def test_expanded_service_sets(register_services, service_names, parameters_toge
     assert overall_tasks_to_run == 32
 
 
-def build_predecessor_level_dict(graph, source):
-    """
-    Traverses the graph and returns a dictionary of each level of the graph,
-        starting from the source node and working its way up along predecessors.
-    """
-    level = 0
-    predecessors = {}
-    done = False
-    currentLevel = set([source])
-    nextLevel = set()
-
-
-    # TODO This isn't perfect, as it won't do secondary chains that are shorter before we reach their level. But that's okay.
-    while not done:
-        print("At start of new level {}. Nodes: {}".format(level, currentLevel))
-        predecessors[level] = currentLevel
-        level += 1
-        for current in currentLevel:
-            for p in graph.predecessors(current):
-                nextLevel.add(p)
-        if len(nextLevel) == 0:
-            done = True
-        currentLevel = nextLevel
-        nextLevel = set()
-    reversed_predecessors = {}
-    for k, v in predecessors.items():
-        reversed_predecessors[level-1-k] = v
-    return reversed_predecessors
-
 
 def data_item_hash(p):
     """
@@ -184,34 +127,6 @@ def compute_task(task, level):
     h = data_item_hash(task)
     print("Computing task *{}* {} at level {}".format(h, task, level))
 
-def build_tasks_per_level(preds, s_e):
-    
-    start_level = 0
-    level = start_level
-    done = False
-    tasks_by_level = {-1: [({"service": "levelneg1", "hash": "valueneg1", "task": {"pn1": 'vn1'}} )]}
-    while not done:
-        level_services = preds[level]
-        tasks_by_level[level] = []
-        for service in level_services:
-            task_set = s_e[service]
-            print("Service: {} Task Set: {} \n\n".format(service, len(task_set)))
-            task_products = itertools.product(task_set, tasks_by_level[level-1])
-            for task in task_products:
-                tasks_by_level[level].append(task)
-        print("\n")
-        level += 1
-        if level not in preds:
-            done=True
-
-    return tasks_by_level
-
-def compute_tasks_by_level(tasks_by_level):
-    for level in tasks_by_level:
-        for task in level:
-            compute_task(task, level)
-
-    
 
 def test_construct_tasks_in_order(register_services, service_names, parameters_together):
     hypervisor, _ = register_services

@@ -1,5 +1,5 @@
 import json
-from data.utils import get_required_parameters, make_hash
+from data.utils import make_hash
 import time
 import itertools
 
@@ -28,14 +28,14 @@ class Hypervisor():
     def _compute(self, service_name, parameters):
         s_e = self.build_expanded_service_sets(parameters)
 
-        preds = self.build_predecessor_level_dict(self.hypervisor.registry.service_graph, most_child_service)
+        preds = self.build_predecessor_level_dict(self.registry.service_graph, service_name)
         print("Full Predecessor chain: {}".format(preds))
         print("Service sets expanded (keys): {}".format(s_e.keys()))
 
         tasks_by_level = self.build_tasks_per_level(preds, s_e)
 
         for level, tasks in tasks_by_level.items():
-            print("Level {} has {} tasks. Example: {}".format(level, len(tasks), tasks[0]))
+            print("Level {} has {} tasks. Example: (Len {}) {}".format(level, len(tasks), len(tasks[0]), tasks[0]))
 
         self.compute_tasks_by_level(tasks_by_level)
 
@@ -48,7 +48,6 @@ class Hypervisor():
         expanded_service_sets = {}
         for service, sp in parameters.items():
             combos = list(itertools.product(*sp.values()))
-            # combos = list(map(data_item_hash, itertools.product(sp.values())))
             print("********************************hash combos****************************** \n {} \n *****************".format(combos))
             keyed_combos = tuple(map(lambda values: dict(zip(sp.keys(), values)), combos))
             print("Service: {} Len Combos: {} Keyed Combos: {}".format(service, len(combos), keyed_combos))
@@ -59,8 +58,9 @@ class Hypervisor():
         for service, service_tasks in expanded_service_sets.items():
             tasks_hashed = []
             for task in service_tasks:
-                h = self.data_item_hash(task)
+                h = self.hash_single_service(task)
                 tasks_hashed.append({"service": service, "hash": h, "task": task})
+            print("Tasks hashed service {} : {}".format(service, tasks_hashed))
             s_e_hash[service] = tasks_hashed
 
         return s_e_hash
@@ -95,20 +95,43 @@ class Hypervisor():
         return reversed_predecessors
 
     def build_tasks_per_level(self, preds, s_e):
+        """
+        
+        :rtype: TODO please :) should be a more consistent thing.
+        """
         
         start_level = 0
         level = start_level
         done = False
-        tasks_by_level = {-1: [({"service": "levelneg1", "hash": "valueneg1", "task": {"pn1": 'vn1'}} )]}
+        # tasks_by_level = {-1: [({"service": "levelneg1", "hash": "valueneg1", "task": {"pn1": 'vn1'}})]}
+        tasks_by_level = {}
         while not done:
             level_services = preds[level]
             tasks_by_level[level] = []
+            # print("Tasks by level {}".format(tasks_by_level))
             for service in level_services:
                 task_set = s_e[service]
                 print("Service: {} Task Set: {} \n\n".format(service, len(task_set)))
-                task_products = itertools.product(task_set, tasks_by_level[level-1])
-                for task in task_products:
-                    tasks_by_level[level].append(task)
+                for new_task in task_set:
+                    if level > 0:
+                        for previous_tasks in tasks_by_level[level-1]:
+                            pt_copy = previous_tasks.copy()
+                            pt_copy.append(new_task)
+                            print("Task in task_product: Len: {} Task: {}".format(len(pt_copy), pt_copy))
+                            tasks_by_level[level].append(pt_copy)
+                    else:
+                        tasks_by_level[level].append([new_task])
+
+
+
+                # if level > 0:
+                #     print("Service: {} Task Set: {} \n Tasks By Level: {} \n\n".format(service, task_set, tasks_by_level[level-1]))
+                #     task_products = itertools.product(task_set, tasks_by_level[level-1]) # always outputs tuple(2)
+                # else:
+                #     task_products = itertools.product(task_set)# outputs tuple(1)
+                # for task in task_products:
+                #     print("Task in task_product: Len: {} Task: {}".format(len(task), task))
+                #     tasks_by_level[level].append(task)
             print("\n")
             level += 1
             if level not in preds:
@@ -116,48 +139,59 @@ class Hypervisor():
 
         return tasks_by_level
 
-    def data_item_hash(self, p):
+    def hash_single_service(self, p):
         """
-        Makes a hash out of a service name and all (and only) the required parameters
-        to compute an instance of running that service for one task.
+        Makes a hash out of an individual tasks parameters.
 
         """
 
         s2 = json.dumps(p, sort_keys=True)
         s3 = repr(s2)
         s4 = make_hash(s3)
-        # s4 = hash(s3)
         s5 = str(s4)
         return s5
 
-    def compute_tasks_by_level(self, tasks_by_level):
-        for level in tasks_by_level:
-            for task in level:
-                self.compute_task(task, level)
-        
-    def compute_task(self, task, level):
-        h = self.data_item_hash(task)
-        print("Computing task *{}* {} at level {}".format(h, task, level))
-        
-        # TODO
-        task_description = {'dataId': h,
-                 'service_name': service_name, 
-                 'inputs': input_locations,
-                 'outputs': output_locations,
-                 'parameters': subset_parameters
-        }
+    def build_task_set_hash(self, task_set):
+        """
+        Makes a combined hash of the hashes of the sub-components for the overall task.
+        """
+        combined_hash = 'hash'
+        for task in task_set:
+            # print("Inner task: {}".format(task))
+            if isinstance(task, tuple):
+                t = task[0]
+            else:
+                t = task
+            combined_hash = combined_hash + '-' + t['hash']
+        return combined_hash
 
-        self._compute_single_service(task_description)
+    def compute_tasks_by_level(self, tasks_by_level):
+        # print("Tasks by level: {}".format(tasks_by_level))
+        for level, level_tasks in tasks_by_level.items():
+            print("Level: {}".format(level))
+            if level >= 0:
+                for task_set in level_tasks:
+                    self.compute_task(task_set, level)
+        
+    def compute_task(self, task_set, level):
+        h = self.build_task_set_hash(task_set)
+        print("\nComputing task *{}* {} at level {}\n".format(h, task_set, level))
+        # just need to pass the list of hashes here when building the description.
+        task_description = self.registry.build_data_description_from_task(task_set)
+        
+        print(task_description)
+        print("\n\n")
+
+        # self._compute_single_service(task_description)
 
     def _compute_single_service(self, task_command_description):
 
         # Call docker
         taskDefinition = "ClimateEnsemblingManual"
 
-        print("Calling task {} with inputs from {} and output to: {}".format(task_command_description['dataId'], task_command_for_container['inputs'], task_command_for_container['outputs']))
+        print("Calling task {} with inputs from {} and output to: {}".format(task_command_description['dataId'], task_command_description['inputs'], task_command_description['outputs']))
         # print("**** DEBUG **** Calling task {} with data description: {}".format(data_description))
 
-        ## TODO pass parameters??
         task_response = self.ecs_client.run_task(
             taskDefinition=taskDefinition,
             launchType='FARGATE',
@@ -203,7 +237,7 @@ class Hypervisor():
     # def _compute_old(self, service_name, parameters):
     #     ancestors = self.registry.get_ancestors_and_self(service_name)
     #     subset_parameters = get_required_parameters(ancestors, parameters, self.registry.service_graph)
-    #     dataHash = self.registry.data_item_hash(service_name, subset_parameters)
+    #     dataHash = self.registry.hash_single_service(service_name, subset_parameters)
     #     dataId = self.registry.make_data_id(service_name, dataHash)
     #     cached_data = self.registry.get_data(dataId)
 

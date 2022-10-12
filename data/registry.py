@@ -154,7 +154,36 @@ class DynamoDBRegistry(Registry):
         s5 = str(s4)
         return s5
 
-    def build_data_description(self, service_name, service, dataHash, parameters, s3_bucket='climate-ensembling'):
+    def build_data_description_from_task(self, task_set, s3_bucket='climate-ensembling'):
+
+        # TODO ? Idk it's building everything as a ProcessData request, and having the intended output as an input?
+        service_name = task_set[0]['service']
+        hash = task_set[0]['hash']
+        parameters = task_set[0]['task']
+        output_locations = {'output1': self.build_s3_location(hash, s3_bucket, service_name)}
+
+        input_locations = {}
+        if len(task_set) > 1:
+            for task in task_set:
+                t = task
+                input_locations[t['service']] = self.build_s3_location(t['hash'], s3_bucket, t['service'])
+
+        data_description = {'dataId': self.make_data_id(service_name, hash),
+                 'service_name': service_name, 
+                 'inputs': input_locations,
+                 'outputs': output_locations,
+                 'parameters': parameters
+        }
+
+        return data_description
+
+        
+    def build_s3_location(self, hash, s3_bucket, service_name):
+        return "s3://" + s3_bucket + "/" + service_name + "/" + hash
+
+
+
+    def build_data_description(self, service_name, parameters, s3_bucket='climate-ensembling'):
         # uuid = UUID.uuid.uuid4().hex
         ## TODO
         # dataId = self.make_data_id(service_name, dataHash)
@@ -165,7 +194,7 @@ class DynamoDBRegistry(Registry):
             p = self.service_graph.nodes[pname]
             # print("p {}".format(p))
             name = p['service_name']
-            sub_p = get_required_parameters(self.service_graph.predecessors(name), parameters, self.service_graph)
+            # sub_p = get_required_parameters(self.service_graph.predecessors(name), parameters, self.service_graph)
             p_hash = self.data_item_hash(name, sub_p)
             input_locations[name] = "s3://" + s3_bucket + "/" + name + "/" + p_hash
 
