@@ -132,43 +132,20 @@ class DynamoDBRegistry(Registry):
                 return None
 
 
-    ### Climate Specific Stuff ###
     def make_data_id(self, service_name, dataHash):
-        return service_name +  "-" + dataHash
+        return service_name +  "/" + dataHash
 
-    def _custom_hash(parameters):
-        return "fdsaf"
 
-    def data_item_hash(self, p):
-        """
-        Makes a hash out of a service name and all (and only) the required parameters
-        to compute an instance of running that service for one task.
+    def build_data_description_from_task(self, service_name, input_hashes, output_hash, parameters, s3_bucket='climate-ensembling'):
 
-        """
-
-        # s1 = {'service_name': service_name, **required_parameters}
-        s2 = json.dumps(p, sort_keys=True)
-        s3 = repr(s2)
-        s4 = make_hash(s3)
-        # s4 = hash(s3)
-        s5 = str(s4)
-        return s5
-
-    def build_data_description_from_task(self, task_set, s3_bucket='climate-ensembling'):
-
-        # TODO ? Idk it's building everything as a ProcessData request, and having the intended output as an input?
-        service_name = task_set[0]['service']
-        hash = task_set[0]['hash']
-        parameters = task_set[0]['task']
-        output_locations = {'output1': self.build_s3_location(hash, s3_bucket, service_name)}
+        output_locations = {'output1': self.build_s3_location(output_hash, s3_bucket, service_name)}
 
         input_locations = {}
-        if len(task_set) > 1:
-            for task in task_set:
-                t = task
-                input_locations[t['service']] = self.build_s3_location(t['hash'], s3_bucket, t['service'])
+        if len(input_hashes) > 0:
+            for input_name, hash in input_hashes.items():
+                input_locations[input_name] = self.build_s3_location(hash, s3_bucket, input_name)
 
-        data_description = {'dataId': self.make_data_id(service_name, hash),
+        data_description = {'dataId': self.make_data_id(service_name, output_hash),
                  'service_name': service_name, 
                  'inputs': input_locations,
                  'outputs': output_locations,
@@ -180,40 +157,6 @@ class DynamoDBRegistry(Registry):
         
     def build_s3_location(self, hash, s3_bucket, service_name):
         return "s3://" + s3_bucket + "/" + service_name + "/" + hash
-
-
-
-    def build_data_description(self, service_name, parameters, s3_bucket='climate-ensembling'):
-        # uuid = UUID.uuid.uuid4().hex
-        ## TODO
-        # dataId = self.make_data_id(service_name, dataHash)
-        input_locations = {}
-        output_locations = {}
-        # print("Node {} preds {}".format(self.service_graph.nodes[service_name], self.service_graph.predecessors(service_name)))
-        for pname in self.service_graph.predecessors(service_name):
-            p = self.service_graph.nodes[pname]
-            # print("p {}".format(p))
-            name = p['service_name']
-            # sub_p = get_required_parameters(self.service_graph.predecessors(name), parameters, self.service_graph)
-            p_hash = self.data_item_hash(name, sub_p)
-            input_locations[name] = "s3://" + s3_bucket + "/" + name + "/" + p_hash
-
-        ancestors = self.get_ancestors_and_self(service_name)
-        subset_parameters = get_required_parameters(ancestors, parameters, self.service_graph)
-        s_hash = self.data_item_hash(service_name, subset_parameters)
-        dataId = self.make_data_id(service_name, s_hash)
-        output_locations[service_name] = "s3://" + s3_bucket + "/" + service_name + "/" +  s_hash
-        
-        data_description = {'dataId': dataId,
-                 'service_name': service_name, 
-                 'inputs': input_locations,
-                 'outputs': output_locations,
-                 'parameters': subset_parameters
-        }
-        # print("********************Data Description*************************\n {} \n ***********************************".format(data_description))
-        return data_description
-
-
 
 class MongoDBRegistry(Registry):
     def __init__(self, client):

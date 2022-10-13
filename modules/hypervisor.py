@@ -25,17 +25,68 @@ class Hypervisor():
         service_response = self._compute(service_name, service_parameters)
         return service_response
 
+    def pp_task_set(self, task_set):
+        tshash = self.build_task_set_hash(task_set)
+        print("\tTask set: len({}) type({}) TSHash({})".format(len(task_set), type(task_set), tshash))
+        for j, task in enumerate(task_set):
+            print("\t\tTask {} Hash {}: len({}) type({}) Service: {} \n\t\t\t{}".format(j, task['hash'], len(task), type(task), task['service'], task))
+        print()
+
+
+    def pretty_print_tasks_by_level(self, tasks_by_level):
+        print("Tasks by Level Size:{}".format(len(tasks_by_level)))
+        for key, value in tasks_by_level.items():
+            print("\nLevel {} Length {}".format(key, len(value)))
+            for i, task_set in enumerate(value):
+                self.pp_task_set(task_set)
+
+    def build_input_task_set_hashes(self, task_set):
+        """
+        Note this only works on a linear graph right now, if there are multiple inputs to a single node it will likely get confused and build hashes out of order.
+        We'll need to add in a sense of lineage here for the sub-tasks to extend to multi-inputs. TODO tho :)
+
+        :rtype: returns a dictionary of {"service": "task_set_hash"}
+        """
+        tshashes = {}
+        ts = []
+        for task in task_set:
+            service = task['service']
+            ts.append(task)
+            tshashes[service] = {'tshash': self.build_task_set_hash(ts), 'task_set': ts.copy()}
+        return tshashes
+
+
+
+    def build_task_set_hash(self, task_set):
+        """
+        Makes a combined hash of the hashes of the sub-components for the overall task.
+        :rtype: String of type "hash1/hash2/.../hashN"
+        """
+        combined_hash = ''
+        for task in task_set:
+            combined_hash += task['hash'] + '/'
+        return combined_hash
+
+    def hash_single_service(self, p):
+        """
+        Makes a hash out of an individual tasks parameters.
+
+        """
+
+        s2 = json.dumps(p, sort_keys=True)
+        s3 = repr(s2)
+        s4 = make_hash(s3)
+        s5 = str(s4)
+        return s5
+
     def _compute(self, service_name, parameters):
+        print("Received request to compute for service: {} with parameters: {}\n".format(service_name, parameters))
+
         s_e = self.build_expanded_service_sets(parameters)
 
         preds = self.build_predecessor_level_dict(self.registry.service_graph, service_name)
-        print("Full Predecessor chain: {}".format(preds))
-        print("Service sets expanded (keys): {}".format(s_e.keys()))
-
         tasks_by_level = self.build_tasks_per_level(preds, s_e)
-
-        for level, tasks in tasks_by_level.items():
-            print("Level {} has {} tasks. Example: (Len {}) {}".format(level, len(tasks), len(tasks[0]), tasks[0]))
+        self.pretty_print_tasks_by_level(tasks_by_level)
 
         self.compute_tasks_by_level(tasks_by_level)
 
@@ -48,9 +99,7 @@ class Hypervisor():
         expanded_service_sets = {}
         for service, sp in parameters.items():
             combos = list(itertools.product(*sp.values()))
-            print("********************************hash combos****************************** \n {} \n *****************".format(combos))
             keyed_combos = tuple(map(lambda values: dict(zip(sp.keys(), values)), combos))
-            print("Service: {} Len Combos: {} Keyed Combos: {}".format(service, len(combos), keyed_combos))
             expanded_service_sets[service] = keyed_combos
 
         s_e_hash = {}
@@ -60,7 +109,6 @@ class Hypervisor():
             for task in service_tasks:
                 h = self.hash_single_service(task)
                 tasks_hashed.append({"service": service, "hash": h, "task": task})
-            print("Tasks hashed service {} : {}".format(service, tasks_hashed))
             s_e_hash[service] = tasks_hashed
 
         return s_e_hash
@@ -79,7 +127,6 @@ class Hypervisor():
 
         # TODO This isn't perfect, as it won't do secondary chains that are shorter before we reach their level. But that's okay.
         while not done:
-            print("At start of new level {}. Nodes: {}".format(level, currentLevel))
             predecessors[level] = currentLevel
             level += 1
             for current in currentLevel:
@@ -103,86 +150,60 @@ class Hypervisor():
         start_level = 0
         level = start_level
         done = False
-        # tasks_by_level = {-1: [({"service": "levelneg1", "hash": "valueneg1", "task": {"pn1": 'vn1'}})]}
         tasks_by_level = {}
         while not done:
             level_services = preds[level]
             tasks_by_level[level] = []
-            # print("Tasks by level {}".format(tasks_by_level))
             for service in level_services:
                 task_set = s_e[service]
-                print("Service: {} Task Set: {} \n\n".format(service, len(task_set)))
                 for new_task in task_set:
                     if level > 0:
                         for previous_tasks in tasks_by_level[level-1]:
                             pt_copy = previous_tasks.copy()
                             pt_copy.append(new_task)
-                            print("Task in task_product: Len: {} Task: {}".format(len(pt_copy), pt_copy))
                             tasks_by_level[level].append(pt_copy)
                     else:
                         tasks_by_level[level].append([new_task])
 
-
-
-                # if level > 0:
-                #     print("Service: {} Task Set: {} \n Tasks By Level: {} \n\n".format(service, task_set, tasks_by_level[level-1]))
-                #     task_products = itertools.product(task_set, tasks_by_level[level-1]) # always outputs tuple(2)
-                # else:
-                #     task_products = itertools.product(task_set)# outputs tuple(1)
-                # for task in task_products:
-                #     print("Task in task_product: Len: {} Task: {}".format(len(task), task))
-                #     tasks_by_level[level].append(task)
-            print("\n")
             level += 1
             if level not in preds:
                 done=True
 
         return tasks_by_level
 
-    def hash_single_service(self, p):
-        """
-        Makes a hash out of an individual tasks parameters.
-
-        """
-
-        s2 = json.dumps(p, sort_keys=True)
-        s3 = repr(s2)
-        s4 = make_hash(s3)
-        s5 = str(s4)
-        return s5
-
-    def build_task_set_hash(self, task_set):
-        """
-        Makes a combined hash of the hashes of the sub-components for the overall task.
-        """
-        combined_hash = 'hash'
-        for task in task_set:
-            # print("Inner task: {}".format(task))
-            if isinstance(task, tuple):
-                t = task[0]
-            else:
-                t = task
-            combined_hash = combined_hash + '-' + t['hash']
-        return combined_hash
 
     def compute_tasks_by_level(self, tasks_by_level):
-        # print("Tasks by level: {}".format(tasks_by_level))
         for level, level_tasks in tasks_by_level.items():
             print("Level: {}".format(level))
             if level >= 0:
                 for task_set in level_tasks:
-                    self.compute_task(task_set, level)
-        
-    def compute_task(self, task_set, level):
-        h = self.build_task_set_hash(task_set)
-        print("\nComputing task *{}* {} at level {}\n".format(h, task_set, level))
+                    self.compute_task(task_set)
+
+    def pp_tshashes(self, tshashes, service=None):
+        for service, tshash in tshashes.items():
+            hash = tshash['tshash']
+            task_set = tshash['task_set']
+
+    def compute_task(self, task_set):
+        service_name = task_set[-1]['service']
+        tshashes = self.build_input_task_set_hashes(task_set)
+        self.pp_tshashes(tshashes, service_name)
+
+        input_hashes = {}
+        for service, tshash in tshashes.items():
+            if service != service_name:
+                input_hashes[service] = tshash['tshash']
+
+        output_hash = tshashes[service_name]['tshash']
+        parameters = {service_name: task_set[-1]['task']}
+
         # just need to pass the list of hashes here when building the description.
-        task_description = self.registry.build_data_description_from_task(task_set)
+        task_description = self.registry.build_data_description_from_task(service_name, input_hashes, output_hash, parameters)
         
         print(task_description)
         print("\n\n")
 
-        # self._compute_single_service(task_description)
+        self._compute_single_service(task_description)
 
     def _compute_single_service(self, task_command_description):
 
