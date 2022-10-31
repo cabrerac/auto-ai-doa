@@ -195,7 +195,11 @@ class Hypervisor():
                 input_hashes[service] = tshash['tshash']
 
         output_hash = tshashes[service_name]['tshash']
-        parameters = {service_name: task_set[-1]['task']}
+        param_dict = {}
+        for t in task_set:
+            param_dict.update(t['task'])
+        parameters = {service_name: param_dict}
+        # parameters = {service_name: task_set[-1]['task']}
 
         # just need to pass the list of hashes here when building the description.
         task_description = self.registry.build_data_description_from_task(service_name, input_hashes, output_hash, parameters)
@@ -208,7 +212,7 @@ class Hypervisor():
     def _compute_single_service(self, task_command_description):
 
         # Call docker
-        taskDefinition = "ClimateEnsemblingManual"
+        taskDefinition = "ClimateTaskCF"
 
         print("Calling task {} with inputs from {} and output to: {}".format(task_command_description['dataId'], task_command_description['inputs'], task_command_description['outputs']))
         # print("**** DEBUG **** Calling task {} with data description: {}".format(data_description))
