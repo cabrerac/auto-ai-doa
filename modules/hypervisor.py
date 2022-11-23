@@ -1,6 +1,5 @@
 import json
 from data.utils import make_hash
-import time
 import itertools
 
 class Hypervisor():
@@ -50,12 +49,11 @@ class Hypervisor():
         tshashes = {}
         ts = []
         for task in task_set:
+            print("Task as we build the task-set-hashed: {}".format(task))
             service = task['service']
             ts.append(task)
             tshashes[service] = {'tshash': self.build_task_set_hash(ts), 'task_set': ts.copy()}
         return tshashes
-
-
 
     def build_task_set_hash(self, task_set):
         """
@@ -83,8 +81,10 @@ class Hypervisor():
         print("Received request to compute for service: {} with parameters: {}\n".format(service_name, parameters))
 
         s_e = self.build_expanded_service_sets(parameters)
+        print("Expanded service sets: {}".format(s_e))
 
         preds = self.build_predecessor_level_dict(self.registry.service_graph, service_name)
+        print("Predecessor Dictionary: {}".format(preds))
         tasks_by_level = self.build_tasks_per_level(preds, s_e)
         self.pretty_print_tasks_by_level(tasks_by_level)
 
@@ -144,7 +144,7 @@ class Hypervisor():
     def build_tasks_per_level(self, preds, s_e):
         """
         
-        :rtype: TODO please :) should be a more consistent thing.
+        :rtype: Dictionary of levels, with each level containing a list of tasks to be computed at that level.
         """
         
         start_level = 0
@@ -199,9 +199,7 @@ class Hypervisor():
         for t in task_set:
             param_dict.update(t['task'])
         parameters = {service_name: param_dict}
-        # parameters = {service_name: task_set[-1]['task']}
 
-        # just need to pass the list of hashes here when building the description.
         task_description = self.registry.build_data_description_from_task(service_name, input_hashes, output_hash, parameters)
         
         print(task_description)
@@ -209,38 +207,39 @@ class Hypervisor():
 
         self._compute_single_service(task_description)
 
-    def _compute_single_service(self, task_command_description):
-
-        # Call docker
-        taskDefinition = "ClimateTaskCF"
+    def _compute_single_service(self, task_command_description, taskDefinition="ClimateTaskCF"):
 
         print("Calling task {} with inputs from {} and output to: {}".format(task_command_description['dataId'], task_command_description['inputs'], task_command_description['outputs']))
         # print("**** DEBUG **** Calling task {} with data description: {}".format(data_description))
 
-        task_response = self.ecs_client.run_task(
-            taskDefinition=taskDefinition,
-            launchType='FARGATE',
-            cluster=self.CLUSTER_NAME,
-            platformVersion='LATEST',
-            count=1,
-            networkConfiguration={
-                'awsvpcConfiguration': {
-                    'subnets': [
-                        'subnet-0183fe050d93b845a',
-                    ],
-                    'assignPublicIp': 'ENABLED',
-                    'securityGroups': ["sg-0a6e23d1e06d90604"]
-                }
-            },
-            overrides={'containerOverrides': [
-                {
-                    'name': 'climate',
-                    'command': self._build_container_command(task_command_description)
-                }
-            ]}
-        )
-        print("ECS Task {} running......".format(task_command_description['dataId']))
-        return task_response
+
+        def call_ecs():
+            task_response = self.ecs_client.run_task(
+                taskDefinition=taskDefinition,
+                launchType='FARGATE',
+                cluster=self.CLUSTER_NAME,
+                platformVersion='LATEST',
+                count=1,
+                networkConfiguration={
+                    'awsvpcConfiguration': {
+                        'subnets': [
+                            'subnet-0183fe050d93b845a',
+                        ],
+                        'assignPublicIp': 'ENABLED',
+                        'securityGroups': ["sg-0a6e23d1e06d90604"]
+                    }
+                },
+                overrides={'containerOverrides': [
+                    {
+                        'name': 'HypervisorTask1',
+                        'command': self._build_container_command(task_command_description)
+                    }
+                ]}
+            )
+            print("ECS Task {} running......".format(task_command_description['dataId']))
+            return task_response
+
+        return call_ecs()
 
     def _build_container_command(self, parameters):
         cmd = "/bin/sh -c \"cd /app && ls -altr && pwd && python3 --version && pip freeze "
@@ -257,98 +256,3 @@ class Hypervisor():
             if task_arn == target_task_arn:
                 print("Target task located in list.")
         return False
-
-
-    # def _compute_old(self, service_name, parameters):
-    #     ancestors = self.registry.get_ancestors_and_self(service_name)
-    #     subset_parameters = get_required_parameters(ancestors, parameters, self.registry.service_graph)
-    #     dataHash = self.registry.hash_single_service(service_name, subset_parameters)
-    #     dataId = self.registry.make_data_id(service_name, dataHash)
-    #     cached_data = self.registry.get_data(dataId)
-
-    #     print("***** Inside _compute for {} with dataHash {} *****".format(service_name, dataHash))
-
-    #     if not parameters['force_rerun'] and (cached_data is not None):
-    #     # TODO if cached_data is not None or service_name in inputs:
-    #         print("Returning cached data for {}: {}".format(service_name, cached_data))
-    #         return cached_data
-    #     else:
-    #         waiting = True
-    #         service = self.registry.get_service(service_name, subset_parameters)
-    #         sub_service_responses = []
-
-    #         # Dispatch jobs or get the cached data for the required inputs
-    #         for input in service['inputs']:
-    #             sub_service_responses.append(self._compute(input, parameters))
-    #         print("Service {} Subservice Reponses {}".format(service_name, len(sub_service_responses)))
-            
-    #         # Sync - Wait for all the services to complete before doing the upper service
-    #         i=0
-    #         while waiting:
-    #             # TODO Make this better parallelized for computing all the models at once
-    #             for s in sub_service_responses:
-    #                 if self._is_service_completed(s):
-    #                     sub_service_responses.remove(s)
-    #             if len(sub_service_responses) == 0:
-    #                 waiting = False
-    #                 continue
-    #             if i % 10 == 0:
-    #                 print("Still waiting on services.... {}".format(i))
-    #                 i=0
-    #                 # TODO remove
-    #                 waiting=False
-    #             i = i + 1
-    #             time.sleep(3) # sleep for 15 seconds in between checks
-
-
-    #         return self._compute_single_service_multi_parameters(service_name, service, parameters)
-
-    # def _split_parameters_into_individual_task_sets(self, service_name, parameters):
-    #     """
-    #     Takes a list of all the parameter combinations for this task, and splits it into separate tasks to run each one.s
-        
-    #     Approximately the below, but wrapped with the service name and other HV parameters.
-    #     Input parameters = {'a': [1,2], 'b': [3,3,4], 'c': [9]}
-    #     => Output ~ [{'a': 1, 'b': 3, 'c': 9}, {'a': 1, 'b': 3, 'c': 9}, {'a': 1, 'b': 4, 'c': 9}, {'a': 2, 'b': 3, 'c': 9}, {'a': 2, 'b': 3, 'c': 9}, {'a': 2, 'b': 4, 'c': 9}]
-    #     """
-    #     parameter_sets = []
-    #     relevant_services = [service_name]
-    #     service_params = parameters[service_name]
-    #     traverse_name = service_name
-    #     ancestors = self.registry.get_ancestors_and_self(traverse_name)
-
-    #     # First we loop through the ancestors and build an overall parameters set for all previous services of the requested service
-    #     for ancestor in ancestors:
-    #         print("Ancestor: {}".format(ancestor))
-    #         if ancestor not in relevant_services:
-    #             relevant_services.append(ancestor)
-    #             service_params = {**service_params, **parameters[ancestor]}
-                    
-
-    #     # TODO maybe keep the dictionary-ness here rather than dropping it then turning it back into a dict.
-
-    #     # Here we expand the lists inside the parameters and build the combintoric combinations
-    #     combos = list(itertools.product(*service_params.values()))
-
-
-    #     # print("*****DEBUG COMBOS {}".format(combos))
-
-    #     # Add back in the keys for the 
-    #     keyed_combos = []
-    #     for combo in combos:
-    #         keyed_combos.append(dict(zip(service_params.keys(), combo)))
-
-
-    #     for kc in keyed_combos:
-    #         pcopy = parameters.copy()
-    #         pcopy[service_name] = kc
-    #         parameter_sets.append(pcopy)
-    #     print("Initial Parameters: {} \n Output parameters sets: {} \n".format(service_name, parameters, len(parameter_sets)))
-    #     # print("**** DEBUG Output parameters sets: {} \n\n\n\n".format(parameter_sets))
-    #     return parameter_sets
-
-    # def _compute_single_service_multi_parameters(self, service_name, service, parameters):
-    #     parameter_sets = self._split_parameters_into_individual_task_sets(service_name, parameters)
-    #     for single_set_parameters in parameter_sets:
-    #         self._compute_single_service(service_name, service, single_set_parameters)
-

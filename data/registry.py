@@ -44,7 +44,7 @@ class DynamoDBRegistry(Registry):
         print("Initializing service graph from service registry....")
         self.service_graph = nx.DiGraph()
 
-        #### Todo - read in from services table and add everything as nodes.
+        #### TODO - read in from services table and add everything as nodes.
 
     def get_ancestors_and_self(self, service_name):
         """
